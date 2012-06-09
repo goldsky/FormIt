@@ -21,7 +21,7 @@
  */
 /**
  * Base class for FormIt. Used for initializing the form processing engine, handling templating and running snippets.
- * 
+ *
  * @package formit
  */
 class FormIt {
@@ -109,6 +109,13 @@ class FormIt {
         ),$config);
         if ($this->modx->getOption('formit.debug',$this->config,true)) {
             $this->startDebugTimer();
+        }
+        if ($dynamicFieldTpls = $this->modx->getOption('dynamicFieldTpls',$this->config)) {
+            $templates = json_decode($dynamicFieldTpls,1);
+            foreach($templates as $k => $v) {
+                $rows[$k] = $this->modx->getChunk($v);
+            }
+            $this->modx->setPlaceholders($rows,$this->config['placeholderPrefix']);
         }
     }
 
