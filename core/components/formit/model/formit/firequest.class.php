@@ -74,6 +74,8 @@ class fiRequest {
             'store' => false,
             'submitVar' => '',
             'validate' => '',
+            'dynamicFieldTpls' => '',
+            'dynamicNumericSuffix' => 'index'
         ),$config);
     }
 
@@ -113,7 +115,7 @@ class fiRequest {
                 $this->modx->getOption('mathOperatorField',$this->config,'operator') => $operators[$operator],
             ),$this->config['placeholderPrefix']);
         }
-        
+
         return $this->runPreHooks();
     }
 
@@ -191,7 +193,7 @@ class fiRequest {
      */
     public function handle(array $fields = array()) {
         if (!$this->hasSubmission()) return '';
-        
+
         $this->loadDictionary();
         $this->dictionary->gather($fields);
 
@@ -255,7 +257,7 @@ class fiRequest {
 
     /**
      * Validate all fields prior to post processing
-     * 
+     *
      * @param string $validationString
      * @return bool
      */
@@ -354,24 +356,175 @@ class fiRequest {
     public function setFieldsAsPlaceholders() {
         $fields = $this->dictionary->toArray();
 
-        /* better handling of checkbox values when input name is an array[] */
-        $fs = array();
-        /** @var mixed $v */
+        if ($this->config['dynamicFieldTpls']) {
+            $templates = json_decode($this->config['dynamicFieldTpls'],1);
+            foreach ($templates as $k => $tpl) {
+                $flip = $this->flipNumericChild($fields[$k]);
+                $clean = $this->deleteEmptyTree($flip);
+                $rows = array();
+                $phs = array();
+                foreach ($clean as $b) {
+                    foreach ($b as $c => $d) {
+                        $phs[$k . '.' . $c] = $d;
+                    }
+                    $rows[] = $this->modx->getChunk($tpl, $phs);
+                }
+                $fields[$k] = @implode("\n", $rows);
+            }
+        }
+
+        $flattenFields= array();
         foreach ($fields as $k => $v) {
             if (is_array($v) && !isset($_FILES[$k])) {
-                foreach ($v as $sk => $sv) {
-                    $fs[$k.'.'.$sk] = $this->convertMODXTags($sv);
+                $rec = $this->recursiveNumericChild($v);
+                if ($rec['count'] === 0) {
+                    $flattenFields[] = $this->implodePhs($v, $k);
+                } else {
+                    $flattenFields[] = $this->implodeCheckboxPhs($v, $k);
                 }
-                $v = implode(',',$v);
+            } else {
+                $flattenFields[][$k] = $this->convertMODXTags($v);
             }
-            /* str_replace to prevent showing of placeholders */
-            $fs[$k] = $this->convertMODXTags($v);
         }
-        $this->modx->setPlaceholders($fs,$this->config['placeholderPrefix']);
+        $count = count($flattenFields);
+        $newFields = array();
+        for ($i = 0 ; $i<$count; $i++) {
+            foreach ($flattenFields[$i] as $k => $v) {
+                $newFields[$k] = $v;
+            }
+        }
+
+        $this->modx->setPlaceholders($newFields,$this->config['placeholderPrefix']);
     }
 
     public function convertMODXTags($v) {
         return str_replace(array('[',']'),array('&#91;','&#93;'),$v);
     }
+
+    /**
+     * Delete a series of content fields with the same parent key
+     * @param array $tree content fields array
+     * @return array a fields set of the parent key that has content
+     */
+    public function deleteEmptyTree(array $tree) {
+        foreach ($tree as $k => $v) {
+            $count = count($v);
+            $empty = 0;
+            foreach ($v as $b) {
+                if (empty($b)) {
+                    $empty++;
+                }
+            }
+            if ($count === $empty) {
+                unset($tree[$k]);
+            }
+        }
+        sort($tree);
+        return $tree;
+    }
+
+    /**
+     * Merge checkbox with multi dimensional associative arrays with separator
+     * @param array $array raw associative array
+     * @param string $keyName parent key of this array
+     * @param string $separator separator between the merged keys
+     * @param array $holder to hold temporary array results
+     * @return array one level array
+     */
+    public function implodeCheckboxPhs(array $array, $keyName = null, $separator = '.', array $holder = array()) {
+        $phs = !empty($holder) ? $holder : array();
+        $cbPhs = array();
+        foreach ($array as $k => $v) {
+            if (is_numeric($k)) {
+                $cbPhs[$keyName] = @implode(',', $array);
+            } else {
+                $key = !empty($keyName) ? $keyName . $separator . $k : $k;
+                if (is_array($v)) {
+                    $phs = $this->implodePhs($v, $key, $separator, $phs);
+                } else {
+                    $phs[$key] = $this->convertMODXTags($v);
+                }
+                $cbPhs[$key] = @implode(',', $phs);
+                $phs = array();
+            }
+        }
+        return $cbPhs;
+    }
+
+    /**
+     * Merge multi dimensional associative arrays with separator
+     * @param array $array raw associative array
+     * @param string $keyName parent key of this array
+     * @param string $separator separator between the merged keys
+     * @param array $holder to hold temporary array results
+     * @return array one level array
+     */
+    public function implodePhs(array $array, $keyName = null, $separator = '.', array $holder = array()) {
+        $phs = !empty($holder) ? $holder : array();
+        foreach ($array as $k => $v) {
+            $key = !empty($keyName) ? $keyName . $separator . $k : $k;
+            if (is_array($v)) {
+                $phs = $this->implodePhs($v, $key, $separator, $phs);
+            } else {
+                $phs[$key] = $this->convertMODXTags($v);
+            }
+        }
+        return $phs;
+    }
+
+    /**
+     * Flip the numeric keys as the parent key of the same array sets
+     * @param array $array array array
+     * @param string $parentKey parent key's name to be glued back as the placeholder's prefix
+     * @param string $separator placeholder names' separator
+     * @return array flipped array
+     */
+    public function flipNumericChild(array $array, $separator='.') {
+        $flip = array();
+        $ar = array();
+        foreach ($array as $k => $v) {
+            if (is_array($v)) {
+                $ar[] = $this->implodePhs($v, $k);
+            } else {
+                $ar[][$k] = $v;
+            }
+        }
+        foreach ($ar as $v) {
+            $exp = array();
+            $imp = '';
+            foreach ($v as $a => $b) {
+                $exp = @explode($separator, $a);
+                $index = array_pop($exp);
+                $imp = @implode($separator, $exp);
+                $dynamicNumericSuffix = $this->config['dynamicNumericSuffix'];
+                $dynamicNumericSuffix = !empty($dynamicNumericSuffix) ? $separator . $dynamicNumericSuffix : '';
+                $flip[$index][$imp . $dynamicNumericSuffix] = $b;
+            }
+        }
+
+        return $flip;
+    }
+
+    /**
+     * Helper method to detect the existance of numeric keys
+     * @param array $tree raw array
+     * @param int $depth get the depth of multi dimension array
+     * @return array depth & count of numeric keys in the array contents
+     */
+    public function recursiveNumericChild(array $tree, $depth = 0) {
+        $rec = array();
+        foreach ($tree as $k => $v) {
+            $depth++;
+            if (is_array($v)) {
+                return $this->recursiveNumericChild($v, $depth);
+            } else {
+                $rec['depth'] = $depth;
+                /* this below detects multiple field names based on numeric array */
+                $rec['count'] = is_numeric($k) ? count($tree) : 0;
+                return $rec;
+            }
+        }
+    }
+
 }
- 
+
