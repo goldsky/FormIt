@@ -32,6 +32,7 @@ if ($input == $options) {
 }
 if (strpos($input,',') !== false) {
     $input = explode(',',$input);
+    array_walk($input, create_function('&$v', '$v = trim($v);'));
     if (in_array($options,$input)) {
         $output = ' checked="checked"';
     }

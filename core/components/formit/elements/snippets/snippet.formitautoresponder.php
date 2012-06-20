@@ -26,7 +26,7 @@
  * @var array $scriptProperties
  * @var FormIt $formit
  * @var fiHooks $hook
- * 
+ *
  * @package formit
  */
 /* setup default properties */
@@ -93,7 +93,9 @@ $emailCC = $modx->getOption('fiarCC',$scriptProperties,'');
 if (!empty($emailCC)) {
     $emailCCName = $modx->getOption('fiarCCName',$scriptProperties,'');
     $emailCC = explode(',',$emailCC);
+    array_walk($emailCC, create_function('&$v', '$v = trim($v);'));
     $emailCCName = explode(',',$emailCCName);
+    array_walk($emailCCName, create_function('&$v', '$v = trim($v);'));
     $numAddresses = count($emailCC);
     for ($i=0;$i<$numAddresses;$i++) {
         $etn = !empty($emailCCName[$i]) ? $emailCCName[$i] : '';
@@ -108,7 +110,9 @@ $emailBCC = $modx->getOption('fiarBCC',$scriptProperties,'');
 if (!empty($emailBCC)) {
     $emailBCCName = $modx->getOption('fiarBCCName',$scriptProperties,'');
     $emailBCC = explode(',',$emailBCC);
+    array_walk($emailBCC, create_function('&$v', '$v = trim($v);'));
     $emailBCCName = explode(',',$emailBCCName);
+    array_walk($emailBCCName, create_function('&$v', '$v = trim($v);'));
     $numAddresses = count($emailBCC);
     for ($i=0;$i<$numAddresses;$i++) {
         $etn = !empty($emailBCCName[$i]) ? $emailBCCName[$i] : '';
